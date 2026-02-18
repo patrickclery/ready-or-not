@@ -30233,7 +30233,10 @@ async function run() {
         behind_by: compareData.data.behind_by,
         ahead_by: compareData.data.ahead_by,
     });
-    const checks = (0, checks_1.evaluateChecks)(checkRunsData.data.check_runs.map((cr) => ({
+    // Filter out this action's own check run (it's always in_progress while we evaluate)
+    const currentJob = github.context.job;
+    const filteredCheckRuns = checkRunsData.data.check_runs.filter((cr) => cr.name !== currentJob);
+    const checks = (0, checks_1.evaluateChecks)(filteredCheckRuns.map((cr) => ({
         name: cr.name,
         conclusion: cr.conclusion,
         status: cr.status,
