@@ -4,6 +4,7 @@ interface ChartInput {
   branch: GateResult
   checks: GateResult
   threads: GateResult
+  reviewers?: GateResult
   prTitle: string
   headRef: string
   baseRef: string
@@ -15,11 +16,13 @@ const COLORS: Record<GateStatus | 'unreached', string> = {
   pass: '#2ea043',
   fail: '#cf222e',
   pending: '#848d97',
+  warn: '#d29922',
   unreached: '#848d97',
 }
 
 function nodeStyle(id: string, status: GateStatus | 'unreached'): string {
-  return `    style ${id} fill:${COLORS[status]},color:#fff`
+  const textColor = status === 'warn' ? '#000' : '#fff'
+  return `    style ${id} fill:${COLORS[status]},color:${textColor}`
 }
 
 function edgeLabel(status: GateStatus, detail: string, prefix: string): string {
@@ -30,7 +33,7 @@ function edgeLabel(status: GateStatus, detail: string, prefix: string): string {
 }
 
 export function generateChart(input: ChartInput): string {
-  const { branch, checks, threads, prTitle, headRef, baseRef, prNumber, prState } = input
+  const { branch, checks, threads, reviewers, prTitle, headRef, baseRef, prNumber, prState } = input
 
   // Determine combined checks+threads gate
   let checksGate: GateStatus = 'pass'
@@ -83,7 +86,9 @@ flowchart TD
     ChecksGate -.->|Yes| CIPassed
 
     CIPassed(All gates passed) ==> ReadyForReview([Ready for Review])
-
+${reviewers?.status === 'warn' ? `
+    ReadyForReview -.-x ReviewerWarn[/"\u26a0\ufe0f ${reviewers.detail}"\\/]
+` : ''}
     style Start fill:${COLORS.pass},color:#fff
     ${nodeStyle('WaitForCI', 'pending')}
     ${nodeStyle('BranchCheck', branchCheckStatus)}
@@ -91,7 +96,7 @@ flowchart TD
     ${nodeStyle('UpdateBranch', branch.status === 'fail' ? 'fail' : 'unreached')}
     ${nodeStyle('FixChecks', checksGate === 'fail' ? 'fail' : 'unreached')}
     ${nodeStyle('CIPassed', allPassedStatus)}
-    ${nodeStyle('ReadyForReview', readyStatus)}
+    ${nodeStyle('ReadyForReview', readyStatus)}${reviewers?.status === 'warn' ? `\n    ${nodeStyle('ReviewerWarn', 'warn')}` : ''}
 \`\`\``
 
   return `${header}\n${mermaid}`

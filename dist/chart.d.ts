@@ -3,6 +3,7 @@ interface ChartInput {
     branch: GateResult;
     checks: GateResult;
     threads: GateResult;
+    reviewers?: GateResult;
     prTitle: string;
     headRef: string;
     baseRef: string;

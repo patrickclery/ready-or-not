@@ -12,6 +12,7 @@ export interface EvaluateResult {
     branch: GateResult;
     checks: GateResult;
     threads: GateResult;
+    reviewers: GateResult;
     chart: string;
     allPassed: boolean;
     prTitle: string;

@@ -87,4 +87,39 @@ describe('generateChart', () => {
     expect(result).toContain('`feat/add-feature-x` -> `main`')
     expect(result).toContain('State: OPEN')
   })
+
+  test('shows reviewer warning node when multiple reviewers', () => {
+    const result = generateChart({
+      ...baseInput,
+      branch: { status: 'pass', detail: '' },
+      checks: { status: 'pass', detail: '5/5 passed' },
+      threads: { status: 'pass', detail: '' },
+      reviewers: { status: 'warn', detail: '2 reviewers: alice, bob' },
+    })
+    expect(result).toContain('ReviewerWarn')
+    expect(result).toContain('2 reviewers: alice, bob')
+    expect(result).toContain('fill:#d29922,color:#000') // yellow with black text
+  })
+
+  test('no reviewer warning when single reviewer', () => {
+    const result = generateChart({
+      ...baseInput,
+      branch: { status: 'pass', detail: '' },
+      checks: { status: 'pass', detail: '5/5 passed' },
+      threads: { status: 'pass', detail: '' },
+      reviewers: { status: 'pass', detail: '' },
+    })
+    expect(result).not.toContain('ReviewerWarn')
+    expect(result).not.toContain('#d29922')
+  })
+
+  test('no reviewer warning when reviewers not provided', () => {
+    const result = generateChart({
+      ...baseInput,
+      branch: { status: 'pass', detail: '' },
+      checks: { status: 'pass', detail: '5/5 passed' },
+      threads: { status: 'pass', detail: '' },
+    })
+    expect(result).not.toContain('ReviewerWarn')
+  })
 })

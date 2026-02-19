@@ -1,6 +1,7 @@
 import { evaluateBranch } from './gates/branch'
 import { evaluateChecks } from './gates/checks'
 import { evaluateThreads } from './gates/threads'
+import { evaluateReviewers } from './gates/reviewers'
 import { generateChart } from './chart'
 import type { Octokit } from './types'
 import type { GateResult } from './gates/types'
@@ -18,6 +19,7 @@ export interface EvaluateResult {
   branch: GateResult
   checks: GateResult
   threads: GateResult
+  reviewers: GateResult
   chart: string
   allPassed: boolean
   prTitle: string
@@ -80,10 +82,15 @@ export async function evaluate(opts: EvaluateOptions): Promise<EvaluateResult> {
     threadsData.repository.pullRequest.reviewThreads.nodes
   )
 
+  const reviewers = evaluateReviewers(
+    (pr.requested_reviewers ?? []).map((r: any) => ({ login: r.login }))
+  )
+
   const chart = generateChart({
     branch,
     checks,
     threads,
+    reviewers,
     prTitle: pr.title,
     headRef,
     baseRef,
@@ -93,5 +100,5 @@ export async function evaluate(opts: EvaluateOptions): Promise<EvaluateResult> {
 
   const allPassed = branch.status === 'pass' && checks.status === 'pass' && threads.status === 'pass'
 
-  return { branch, checks, threads, chart, allPassed, prTitle: pr.title, headRef, baseRef }
+  return { branch, checks, threads, reviewers, chart, allPassed, prTitle: pr.title, headRef, baseRef }
 }

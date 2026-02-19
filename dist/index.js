@@ -29932,10 +29932,12 @@ const COLORS = {
     pass: '#2ea043',
     fail: '#cf222e',
     pending: '#848d97',
+    warn: '#d29922',
     unreached: '#848d97',
 };
 function nodeStyle(id, status) {
-    return `    style ${id} fill:${COLORS[status]},color:#fff`;
+    const textColor = status === 'warn' ? '#000' : '#fff';
+    return `    style ${id} fill:${COLORS[status]},color:${textColor}`;
 }
 function edgeLabel(status, detail, prefix) {
     if (status === 'fail' && detail) {
@@ -29944,7 +29946,7 @@ function edgeLabel(status, detail, prefix) {
     return prefix;
 }
 function generateChart(input) {
-    const { branch, checks, threads, prTitle, headRef, baseRef, prNumber, prState } = input;
+    const { branch, checks, threads, reviewers, prTitle, headRef, baseRef, prNumber, prState } = input;
     // Determine combined checks+threads gate
     let checksGate = 'pass';
     const checksDetails = [];
@@ -29991,7 +29993,9 @@ flowchart TD
     ChecksGate -.->|Yes| CIPassed
 
     CIPassed(All gates passed) ==> ReadyForReview([Ready for Review])
-
+${reviewers?.status === 'warn' ? `
+    ReadyForReview -.-x ReviewerWarn[/"\u26a0\ufe0f ${reviewers.detail}"\\/]
+` : ''}
     style Start fill:${COLORS.pass},color:#fff
     ${nodeStyle('WaitForCI', 'pending')}
     ${nodeStyle('BranchCheck', branchCheckStatus)}
@@ -29999,7 +30003,7 @@ flowchart TD
     ${nodeStyle('UpdateBranch', branch.status === 'fail' ? 'fail' : 'unreached')}
     ${nodeStyle('FixChecks', checksGate === 'fail' ? 'fail' : 'unreached')}
     ${nodeStyle('CIPassed', allPassedStatus)}
-    ${nodeStyle('ReadyForReview', readyStatus)}
+    ${nodeStyle('ReadyForReview', readyStatus)}${reviewers?.status === 'warn' ? `\n    ${nodeStyle('ReviewerWarn', 'warn')}` : ''}
 \`\`\``;
     return `${header}\n${mermaid}`;
 }
@@ -30067,6 +30071,7 @@ exports.evaluate = evaluate;
 const branch_1 = __nccwpck_require__(198);
 const checks_1 = __nccwpck_require__(7519);
 const threads_1 = __nccwpck_require__(5925);
+const reviewers_1 = __nccwpck_require__(4212);
 const chart_1 = __nccwpck_require__(5215);
 async function evaluate(opts) {
     const { octokit, owner, repo, prNumber, selfCheckName } = opts;
@@ -30101,10 +30106,12 @@ async function evaluate(opts) {
         status: cr.status,
     })));
     const threads = (0, threads_1.evaluateThreads)(threadsData.repository.pullRequest.reviewThreads.nodes);
+    const reviewers = (0, reviewers_1.evaluateReviewers)((pr.requested_reviewers ?? []).map((r) => ({ login: r.login })));
     const chart = (0, chart_1.generateChart)({
         branch,
         checks,
         threads,
+        reviewers,
         prTitle: pr.title,
         headRef,
         baseRef,
@@ -30112,7 +30119,7 @@ async function evaluate(opts) {
         prState: pr.state.toUpperCase(),
     });
     const allPassed = branch.status === 'pass' && checks.status === 'pass' && threads.status === 'pass';
-    return { branch, checks, threads, chart, allPassed, prTitle: pr.title, headRef, baseRef };
+    return { branch, checks, threads, reviewers, chart, allPassed, prTitle: pr.title, headRef, baseRef };
 }
 
 
@@ -30169,6 +30176,28 @@ function evaluateChecks(checks) {
         status: 'pass',
         detail: `${passed.length}/${checks.length} passed`,
     };
+}
+
+
+/***/ }),
+
+/***/ 4212:
+/***/ ((__unused_webpack_module, exports) => {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.evaluateReviewers = evaluateReviewers;
+const BOT_SUFFIX = '[bot]';
+function evaluateReviewers(reviewers) {
+    const humans = reviewers.filter((r) => !r.login.endsWith(BOT_SUFFIX));
+    if (humans.length > 1) {
+        return {
+            status: 'warn',
+            detail: `${humans.length} reviewers: ${humans.map((r) => r.login).join(', ')}`,
+        };
+    }
+    return { status: 'pass', detail: '' };
 }
 
 
