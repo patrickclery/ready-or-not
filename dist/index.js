@@ -30057,6 +30057,67 @@ async function addReaction(octokit, owner, repo, commentId) {
 
 /***/ }),
 
+/***/ 9512:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.evaluate = evaluate;
+const branch_1 = __nccwpck_require__(198);
+const checks_1 = __nccwpck_require__(7519);
+const threads_1 = __nccwpck_require__(5925);
+const chart_1 = __nccwpck_require__(5215);
+async function evaluate(opts) {
+    const { octokit, owner, repo, prNumber, selfCheckName } = opts;
+    const { data: pr } = await octokit.rest.pulls.get({ owner, repo, pull_number: prNumber });
+    const headSha = pr.head.sha;
+    const baseRef = pr.base.ref;
+    const headRef = pr.head.ref;
+    const [compareData, checkRunsData, threadsData] = await Promise.all([
+        octokit.rest.repos.compareCommits({ owner, repo, base: baseRef, head: headRef }),
+        octokit.rest.checks.listForRef({ owner, repo, ref: headSha, per_page: 100 }),
+        octokit.graphql(`query($owner: String!, $repo: String!, $pr: Int!) {
+        repository(owner: $owner, name: $repo) {
+          pullRequest(number: $pr) {
+            reviewThreads(first: 100) {
+              nodes { isResolved }
+            }
+          }
+        }
+      }`, { owner, repo, pr: prNumber }),
+    ]);
+    const branch = (0, branch_1.evaluateBranch)({
+        behind_by: compareData.data.behind_by,
+        ahead_by: compareData.data.ahead_by,
+    });
+    let checkRuns = checkRunsData.data.check_runs;
+    if (selfCheckName) {
+        checkRuns = checkRuns.filter((cr) => cr.name !== selfCheckName);
+    }
+    const checks = (0, checks_1.evaluateChecks)(checkRuns.map((cr) => ({
+        name: cr.name,
+        conclusion: cr.conclusion,
+        status: cr.status,
+    })));
+    const threads = (0, threads_1.evaluateThreads)(threadsData.repository.pullRequest.reviewThreads.nodes);
+    const chart = (0, chart_1.generateChart)({
+        branch,
+        checks,
+        threads,
+        prTitle: pr.title,
+        headRef,
+        baseRef,
+        prNumber,
+        prState: pr.state.toUpperCase(),
+    });
+    const allPassed = branch.status === 'pass' && checks.status === 'pass' && threads.status === 'pass';
+    return { branch, checks, threads, chart, allPassed, prTitle: pr.title, headRef, baseRef };
+}
+
+
+/***/ }),
+
 /***/ 198:
 /***/ ((__unused_webpack_module, exports) => {
 
@@ -30175,10 +30236,7 @@ var __importStar = (this && this.__importStar) || (function () {
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 const core = __importStar(__nccwpck_require__(7484));
 const github = __importStar(__nccwpck_require__(3228));
-const branch_1 = __nccwpck_require__(198);
-const checks_1 = __nccwpck_require__(7519);
-const threads_1 = __nccwpck_require__(5925);
-const chart_1 = __nccwpck_require__(5215);
+const evaluate_1 = __nccwpck_require__(9512);
 const comment_1 = __nccwpck_require__(2246);
 async function run() {
     const token = core.getInput('token', { required: true });
@@ -30200,61 +30258,15 @@ async function run() {
         return;
     }
     core.info(`Evaluating readiness for PR #${prNumber}`);
-    // Fetch PR details
-    const { data: pr } = await octokit.rest.pulls.get({ owner, repo, pull_number: prNumber });
-    const headSha = pr.head.sha;
-    const baseRef = pr.base.ref;
-    const headRef = pr.head.ref;
-    // Evaluate all three gates in parallel
-    const [compareData, checkRunsData, threadsData] = await Promise.all([
-        octokit.rest.repos.compareCommits({
-            owner,
-            repo,
-            base: baseRef,
-            head: headRef,
-        }),
-        octokit.rest.checks.listForRef({
-            owner,
-            repo,
-            ref: headSha,
-            per_page: 100,
-        }),
-        octokit.graphql(`query($owner: String!, $repo: String!, $pr: Int!) {
-        repository(owner: $owner, name: $repo) {
-          pullRequest(number: $pr) {
-            reviewThreads(first: 100) {
-              nodes { isResolved }
-            }
-          }
-        }
-      }`, { owner, repo, pr: prNumber }),
-    ]);
-    const branch = (0, branch_1.evaluateBranch)({
-        behind_by: compareData.data.behind_by,
-        ahead_by: compareData.data.ahead_by,
-    });
-    // Filter out this action's own check run (it's always in_progress while we evaluate)
-    const currentJob = github.context.job;
-    const filteredCheckRuns = checkRunsData.data.check_runs.filter((cr) => cr.name !== currentJob);
-    const checks = (0, checks_1.evaluateChecks)(filteredCheckRuns.map((cr) => ({
-        name: cr.name,
-        conclusion: cr.conclusion,
-        status: cr.status,
-    })));
-    const threads = (0, threads_1.evaluateThreads)(threadsData.repository.pullRequest.reviewThreads.nodes);
-    core.info(`Gates: branch=${branch.status} checks=${checks.status} threads=${threads.status}`);
-    // Generate chart
-    const chartBody = (0, chart_1.generateChart)({
-        branch,
-        checks,
-        threads,
-        prTitle: pr.title,
-        headRef,
-        baseRef,
+    const result = await (0, evaluate_1.evaluate)({
+        octokit,
+        owner,
+        repo,
         prNumber,
-        prState: pr.state.toUpperCase(),
+        selfCheckName: github.context.job,
     });
-    const commentBody = `${chartBody}\n\n<sub>Generated by <a href="https://github.com/patrickclery/ready-or-not">ready-or-not</a></sub>\n\n<!-- ${commentTag} -->`;
+    core.info(`Gates: branch=${result.branch.status} checks=${result.checks.status} threads=${result.threads.status}`);
+    const commentBody = `${result.chart}\n\n<sub>Generated by <a href="https://github.com/patrickclery/ready-or-not">ready-or-not</a></sub>\n\n<!-- ${commentTag} -->`;
     // Hide old comments, post new one
     const hidden = await (0, comment_1.hideOldComments)(octokit, owner, repo, prNumber, commentTag);
     if (hidden > 0) {

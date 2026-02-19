@@ -1,6 +1,4 @@
-import * as github from '@actions/github'
-
-type Octokit = ReturnType<typeof github.getOctokit>
+import type { Octokit } from './types'
 
 export async function hideOldComments(
   octokit: Octokit,
