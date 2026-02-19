@@ -13,6 +13,8 @@ export interface EvaluateResult {
     checks: GateResult;
     threads: GateResult;
     reviewers: GateResult;
+    draft: GateResult;
+    isDraft: boolean;
     chart: string;
     allPassed: boolean;
     prTitle: string;

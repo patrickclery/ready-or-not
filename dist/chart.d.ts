@@ -4,6 +4,8 @@ interface ChartInput {
     checks: GateResult;
     threads: GateResult;
     reviewers?: GateResult;
+    draft?: GateResult;
+    isDraft?: boolean;
     prTitle: string;
     headRef: string;
     baseRef: string;

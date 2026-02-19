@@ -2,6 +2,7 @@ import { evaluateBranch } from './gates/branch'
 import { evaluateChecks } from './gates/checks'
 import { evaluateThreads } from './gates/threads'
 import { evaluateReviewers } from './gates/reviewers'
+import { evaluateDraft } from './gates/draft'
 import { generateChart } from './chart'
 import type { Octokit } from './types'
 import type { GateResult } from './gates/types'
@@ -20,6 +21,8 @@ export interface EvaluateResult {
   checks: GateResult
   threads: GateResult
   reviewers: GateResult
+  draft: GateResult
+  isDraft: boolean
   chart: string
   allPassed: boolean
   prTitle: string
@@ -86,11 +89,18 @@ export async function evaluate(opts: EvaluateOptions): Promise<EvaluateResult> {
     (pr.requested_reviewers ?? []).map((r: any) => ({ login: r.login }))
   )
 
+  const allPassed = branch.status === 'pass' && checks.status === 'pass' && threads.status === 'pass'
+  const isDraft = pr.draft ?? false
+
+  const draft = evaluateDraft(isDraft, allPassed)
+
   const chart = generateChart({
     branch,
     checks,
     threads,
     reviewers,
+    draft,
+    isDraft,
     prTitle: pr.title,
     headRef,
     baseRef,
@@ -98,7 +108,5 @@ export async function evaluate(opts: EvaluateOptions): Promise<EvaluateResult> {
     prState: pr.state.toUpperCase(),
   })
 
-  const allPassed = branch.status === 'pass' && checks.status === 'pass' && threads.status === 'pass'
-
-  return { branch, checks, threads, reviewers, chart, allPassed, prTitle: pr.title, headRef, baseRef }
+  return { branch, checks, threads, reviewers, draft, isDraft, chart, allPassed, prTitle: pr.title, headRef, baseRef }
 }

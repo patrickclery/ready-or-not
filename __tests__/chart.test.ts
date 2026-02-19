@@ -122,4 +122,59 @@ describe('generateChart', () => {
     })
     expect(result).not.toContain('ReviewerWarn')
   })
+
+  test('draft PR with gates passed shows DraftCheck node', () => {
+    const result = generateChart({
+      ...baseInput,
+      branch: { status: 'pass', detail: '' },
+      checks: { status: 'pass', detail: '5/5 passed' },
+      threads: { status: 'pass', detail: '' },
+      draft: { status: 'fail', detail: 'Mark as Ready for Review' },
+      isDraft: true,
+    })
+    expect(result).toContain('DraftCheck')
+    expect(result).toContain('PR is still a draft')
+    expect(result).toContain('Mark as Ready')
+    expect(result).toContain('fill:#cf222e') // red DraftCheck node
+  })
+
+  test('non-draft PR with gates passed shows green ReadyForReview', () => {
+    const result = generateChart({
+      ...baseInput,
+      branch: { status: 'pass', detail: '' },
+      checks: { status: 'pass', detail: '5/5 passed' },
+      threads: { status: 'pass', detail: '' },
+      draft: { status: 'pass', detail: '' },
+      isDraft: false,
+    })
+    expect(result).not.toContain('DraftCheck')
+    expect(result).toContain('ReadyForReview')
+  })
+
+  test('non-draft PR with gates failing shows draft warning', () => {
+    const result = generateChart({
+      ...baseInput,
+      branch: { status: 'fail', detail: '2 commits behind' },
+      checks: { status: 'pass', detail: '5/5 passed' },
+      threads: { status: 'pass', detail: '' },
+      draft: { status: 'warn', detail: 'Should be in draft while gates are failing' },
+      isDraft: false,
+    })
+    expect(result).toContain('DraftWarn')
+    expect(result).toContain('draft')
+    expect(result).toContain('fill:#d29922,color:#000') // yellow warning
+  })
+
+  test('draft PR with gates failing shows no draft warning', () => {
+    const result = generateChart({
+      ...baseInput,
+      branch: { status: 'fail', detail: '2 commits behind' },
+      checks: { status: 'pass', detail: '5/5 passed' },
+      threads: { status: 'pass', detail: '' },
+      draft: { status: 'pass', detail: 'Draft (gates pending)' },
+      isDraft: true,
+    })
+    expect(result).not.toContain('DraftWarn')
+    expect(result).not.toContain('DraftCheck')
+  })
 })

@@ -29946,7 +29946,7 @@ function edgeLabel(status, detail, prefix) {
     return prefix;
 }
 function generateChart(input) {
-    const { branch, checks, threads, reviewers, prTitle, headRef, baseRef, prNumber, prState } = input;
+    const { branch, checks, threads, reviewers, draft, isDraft, prTitle, headRef, baseRef, prNumber, prState } = input;
     // Determine combined checks+threads gate
     let checksGate = 'pass';
     const checksDetails = [];
@@ -29963,11 +29963,15 @@ function generateChart(input) {
         checksDetails.push(checks.detail);
     }
     // Determine which nodes are reachable
-    const ciPassedReached = branch.status === 'pass' && checksGate === 'pass';
+    const allGatesPassed = branch.status === 'pass' && checksGate === 'pass';
     const branchCheckStatus = branch.status;
     const checksGateStatus = checksGate;
-    const allPassedStatus = ciPassedReached ? 'pass' : 'unreached';
-    const readyStatus = ciPassedReached ? 'pass' : 'unreached';
+    const allPassedStatus = allGatesPassed ? 'pass' : 'unreached';
+    // Draft check determines final ready status
+    const prIsDraft = isDraft ?? false;
+    const draftNeedsAction = allGatesPassed && prIsDraft;
+    const notDraftWarning = !allGatesPassed && !prIsDraft && draft?.status === 'warn';
+    const readyStatus = allGatesPassed && !prIsDraft ? 'pass' : 'unreached';
     // Branch edge labels
     const branchNo = edgeLabel(branch.status, branch.detail, 'No');
     const branchYes = 'Yes';
@@ -29976,10 +29980,44 @@ function generateChart(input) {
     const checksPending = checks.status === 'pending' ? edgeLabel('fail', checks.detail, 'Some pending') : 'Some pending';
     // Build the chart
     const header = `## PR #${prNumber}: ${prTitle}\n\n\`${headRef}\` -> \`${baseRef}\` | State: ${prState}\n`;
+    // Draft node section
+    let draftSection = '';
+    let draftStyles = '';
+    if (draftNeedsAction) {
+        // Gates passed but PR is still a draft — show action needed
+        draftSection = `
+    CIPassed ==> DraftCheck{PR is still a draft}
+    DraftCheck ==>|Mark as Ready| ReadyForReview
+`;
+        draftStyles = `\n    ${nodeStyle('DraftCheck', 'fail')}`;
+    }
+    else {
+        draftSection = `
+    CIPassed(All gates passed) ==> ReadyForReview([Ready for Review])
+`;
+    }
+    // Warning if not draft while gates are failing
+    let notDraftSection = '';
+    let notDraftStyles = '';
+    if (notDraftWarning) {
+        notDraftSection = `
+    Start -.-x DraftWarn[/"\u26a0\ufe0f ${draft.detail}"\\/]
+`;
+        notDraftStyles = `\n    ${nodeStyle('DraftWarn', 'warn')}`;
+    }
+    // Reviewer warning section
+    let reviewerSection = '';
+    let reviewerStyles = '';
+    if (reviewers?.status === 'warn') {
+        reviewerSection = `
+    ReadyForReview -.-x ReviewerWarn[/"\u26a0\ufe0f ${reviewers.detail}"\\/]
+`;
+        reviewerStyles = `\n    ${nodeStyle('ReviewerWarn', 'warn')}`;
+    }
     const mermaid = `\`\`\`mermaid
 flowchart TD
     Start([Code Complete]) ==> WaitForCI[Wait for CI to run]
-
+${notDraftSection}
     WaitForCI ==> BranchCheck{Is the branch up to date<br/>with the target branch?}
     WaitForCI ==> ChecksGate{All CI checks passed<br/>and review comments<br/>resolved?}
 
@@ -29991,11 +30029,7 @@ flowchart TD
     ChecksGate -.->|${checksNo}| FixChecks[Fix failing checks<br/>and resolve comments]
     FixChecks ==> WaitForCI
     ChecksGate -.->|Yes| CIPassed
-
-    CIPassed(All gates passed) ==> ReadyForReview([Ready for Review])
-${reviewers?.status === 'warn' ? `
-    ReadyForReview -.-x ReviewerWarn[/"\u26a0\ufe0f ${reviewers.detail}"\\/]
-` : ''}
+${draftSection}${reviewerSection}
     style Start fill:${COLORS.pass},color:#fff
     ${nodeStyle('WaitForCI', 'pending')}
     ${nodeStyle('BranchCheck', branchCheckStatus)}
@@ -30003,7 +30037,7 @@ ${reviewers?.status === 'warn' ? `
     ${nodeStyle('UpdateBranch', branch.status === 'fail' ? 'fail' : 'unreached')}
     ${nodeStyle('FixChecks', checksGate === 'fail' ? 'fail' : 'unreached')}
     ${nodeStyle('CIPassed', allPassedStatus)}
-    ${nodeStyle('ReadyForReview', readyStatus)}${reviewers?.status === 'warn' ? `\n    ${nodeStyle('ReviewerWarn', 'warn')}` : ''}
+    ${nodeStyle('ReadyForReview', readyStatus)}${draftStyles}${notDraftStyles}${reviewerStyles}
 \`\`\``;
     return `${header}\n${mermaid}`;
 }
@@ -30072,6 +30106,7 @@ const branch_1 = __nccwpck_require__(198);
 const checks_1 = __nccwpck_require__(7519);
 const threads_1 = __nccwpck_require__(5925);
 const reviewers_1 = __nccwpck_require__(4212);
+const draft_1 = __nccwpck_require__(8275);
 const chart_1 = __nccwpck_require__(5215);
 async function evaluate(opts) {
     const { octokit, owner, repo, prNumber, selfCheckName } = opts;
@@ -30107,19 +30142,23 @@ async function evaluate(opts) {
     })));
     const threads = (0, threads_1.evaluateThreads)(threadsData.repository.pullRequest.reviewThreads.nodes);
     const reviewers = (0, reviewers_1.evaluateReviewers)((pr.requested_reviewers ?? []).map((r) => ({ login: r.login })));
+    const allPassed = branch.status === 'pass' && checks.status === 'pass' && threads.status === 'pass';
+    const isDraft = pr.draft ?? false;
+    const draft = (0, draft_1.evaluateDraft)(isDraft, allPassed);
     const chart = (0, chart_1.generateChart)({
         branch,
         checks,
         threads,
         reviewers,
+        draft,
+        isDraft,
         prTitle: pr.title,
         headRef,
         baseRef,
         prNumber,
         prState: pr.state.toUpperCase(),
     });
-    const allPassed = branch.status === 'pass' && checks.status === 'pass' && threads.status === 'pass';
-    return { branch, checks, threads, reviewers, chart, allPassed, prTitle: pr.title, headRef, baseRef };
+    return { branch, checks, threads, reviewers, draft, isDraft, chart, allPassed, prTitle: pr.title, headRef, baseRef };
 }
 
 
@@ -30176,6 +30215,33 @@ function evaluateChecks(checks) {
         status: 'pass',
         detail: `${passed.length}/${checks.length} passed`,
     };
+}
+
+
+/***/ }),
+
+/***/ 8275:
+/***/ ((__unused_webpack_module, exports) => {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.evaluateDraft = evaluateDraft;
+function evaluateDraft(isDraft, allGatesPassed) {
+    if (isDraft && !allGatesPassed) {
+        // Draft while gates failing — correct behavior
+        return { status: 'pass', detail: 'Draft (gates pending)' };
+    }
+    if (isDraft && allGatesPassed) {
+        // Draft but gates passed — time to mark as ready
+        return { status: 'fail', detail: 'Mark as Ready for Review' };
+    }
+    if (!isDraft && !allGatesPassed) {
+        // Not draft but gates failing — should be a draft
+        return { status: 'warn', detail: 'Should be in draft while gates are failing' };
+    }
+    // Not draft and gates passed — good to go
+    return { status: 'pass', detail: '' };
 }
 
 
