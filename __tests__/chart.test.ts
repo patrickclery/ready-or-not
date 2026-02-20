@@ -10,7 +10,7 @@ const baseInput = {
 }
 
 describe('generateChart', () => {
-  test('all gates passing shows green path', () => {
+  test('all gates passing: green edges for Yes paths', () => {
     const result = generateChart({
       ...baseInput,
       branch: { status: 'pass', detail: '' },
@@ -19,37 +19,35 @@ describe('generateChart', () => {
     })
     expect(result).toContain('```mermaid')
     expect(result).toContain('PR #123: Add feature X')
-    expect(result).toContain('fill:#2ea043') // green nodes
+    // Green link styles for pass edges
+    expect(result).toContain('stroke:#2ea043,stroke-width:3px')
   })
 
-  test('branch passing: Yes is solid bold, No is dotted', () => {
+  test('branch passing: Yes is solid bold green, No is dotted grey', () => {
     const result = generateChart({
       ...baseInput,
       branch: { status: 'pass', detail: '' },
       checks: { status: 'pass', detail: '5/5 passed' },
       threads: { status: 'pass', detail: '' },
     })
-    // Yes edge: solid (==>) with bold
     expect(result).toContain('BranchCheck ==>|<b>Yes</b>| CIPassed')
-    // No edge: dotted (-.->) without bold
     expect(result).toMatch(/BranchCheck -\.->/)
   })
 
-  test('branch failing: No is solid bold with detail, Yes is dotted', () => {
+  test('branch failing: No is solid bold red, Yes is dotted grey', () => {
     const result = generateChart({
       ...baseInput,
       branch: { status: 'fail', detail: '3 commits behind' },
       checks: { status: 'pass', detail: '5/5 passed' },
       threads: { status: 'pass', detail: '' },
     })
-    // No edge: solid with bold detail
     expect(result).toContain('BranchCheck ==>|<b>No: 3 commits behind</b>|')
-    // Yes edge: dotted
     expect(result).toContain('BranchCheck -.->|Yes| CIPassed')
-    expect(result).toContain('fill:#cf222e') // red UpdateBranch node
+    // Red link style for the fail edge
+    expect(result).toContain('stroke:#cf222e,stroke-width:3px')
   })
 
-  test('checks passing: Yes is solid bold, No is dotted', () => {
+  test('checks passing: Yes is solid bold green, No is dotted grey', () => {
     const result = generateChart({
       ...baseInput,
       branch: { status: 'pass', detail: '' },
@@ -60,7 +58,7 @@ describe('generateChart', () => {
     expect(result).toMatch(/ChecksGate -\.->/)
   })
 
-  test('checks failing: No is solid bold with detail, Yes is dotted', () => {
+  test('checks failing: No is solid bold red with detail, Yes is dotted', () => {
     const result = generateChart({
       ...baseInput,
       branch: { status: 'pass', detail: '' },
@@ -69,7 +67,7 @@ describe('generateChart', () => {
     })
     expect(result).toContain('ChecksGate ==>|<b>No: 2/5 failing: CI, lint</b>|')
     expect(result).toContain('ChecksGate -.->|Yes| CIPassed')
-    expect(result).toContain('fill:#cf222e')
+    expect(result).toContain('stroke:#cf222e,stroke-width:3px')
   })
 
   test('unresolved threads shows solid No edge with detail', () => {
@@ -115,6 +113,16 @@ describe('generateChart', () => {
     })
     expect(result).toContain('`feat/add-feature-x` -> `main`')
     expect(result).toContain('State: OPEN')
+  })
+
+  test('grey linkStyle for dotted inactive edges', () => {
+    const result = generateChart({
+      ...baseInput,
+      branch: { status: 'pass', detail: '' },
+      checks: { status: 'pass', detail: '' },
+      threads: { status: 'pass', detail: '' },
+    })
+    expect(result).toContain('stroke:#848d97,stroke-width:1px')
   })
 
   test('shows reviewer warning node when multiple reviewers', () => {
@@ -192,6 +200,8 @@ describe('generateChart', () => {
     expect(result).toContain('DraftWarn')
     expect(result).toContain('draft')
     expect(result).toContain('fill:#d29922,color:#000')
+    // Yellow link style for warning edge
+    expect(result).toContain('stroke:#d29922,stroke-width:3px')
   })
 
   test('draft PR with gates failing shows no draft warning', () => {

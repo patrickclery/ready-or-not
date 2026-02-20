@@ -27,14 +27,43 @@ function nodeStyle(id: string, status: GateStatus | 'unreached'): string {
   return `    style ${id} fill:${COLORS[status]},color:${textColor}`
 }
 
-// Solid arrow with bold label (active path)
-function solidEdge(from: string, label: string, to: string): string {
-  return `    ${from} ==>|<b>${label}</b>| ${to}`
+type EdgeColor = 'green' | 'red' | 'grey' | 'yellow' | 'none'
+
+interface Edge {
+  line: string
+  color: EdgeColor
 }
 
-// Dotted arrow with plain label (inactive path)
-function dottedEdge(from: string, label: string, to: string): string {
-  return `    ${from} -.->|${label}| ${to}`
+function solidEdge(from: string, label: string, to: string, color: EdgeColor): Edge {
+  return { line: `    ${from} ==>|<b>${label}</b>| ${to}`, color }
+}
+
+function dottedEdge(from: string, label: string, to: string): Edge {
+  return { line: `    ${from} -.->|${label}| ${to}`, color: 'grey' }
+}
+
+function plainEdge(from: string, to: string, color: EdgeColor = 'none'): Edge {
+  return { line: `    ${from} ==> ${to}`, color }
+}
+
+const EDGE_COLORS: Record<EdgeColor, string> = {
+  green: '#2ea043',
+  red: '#cf222e',
+  grey: '#848d97',
+  yellow: '#d29922',
+  none: '',
+}
+
+function linkStyles(edges: Edge[]): string {
+  return edges
+    .map((e, i) => {
+      if (e.color === 'none') return null
+      const c = EDGE_COLORS[e.color]
+      if (e.color === 'grey') return `    linkStyle ${i} stroke:${c},stroke-width:1px`
+      return `    linkStyle ${i} stroke:${c},stroke-width:3px`
+    })
+    .filter(Boolean)
+    .join('\n')
 }
 
 export function generateChart(input: ChartInput): string {
@@ -68,90 +97,83 @@ export function generateChart(input: ChartInput): string {
   const notDraftWarning = !allGatesPassed && !prIsDraft && draft?.status === 'warn'
   const readyStatus: GateStatus | 'unreached' = allGatesPassed && !prIsDraft ? 'pass' : 'unreached'
 
-  // Branch edges — active path depends on status
-  let branchNoEdge: string
-  let branchYesEdge: string
-  if (branch.status === 'pass') {
-    branchYesEdge = solidEdge('BranchCheck', 'Yes', 'CIPassed')
-    branchNoEdge = dottedEdge('BranchCheck', 'No', 'UpdateBranch[Update the branch from<br/>GitHub or the CLI]')
-  } else {
-    branchNoEdge = solidEdge('BranchCheck', `No: ${branch.detail}`, 'UpdateBranch[Update the branch from<br/>GitHub or the CLI]')
-    branchYesEdge = dottedEdge('BranchCheck', 'Yes', 'CIPassed')
-  }
-
-  // Checks edges — active path depends on status
-  let checksYesEdge: string
-  let checksNoEdge: string
-  let checksPendingEdge: string
   const checksDetailStr = checksDetails.join(', ')
-  if (checksGate === 'pass') {
-    checksYesEdge = solidEdge('ChecksGate', 'Yes', 'CIPassed')
-    checksNoEdge = dottedEdge('ChecksGate', 'No', 'FixChecks[Fix failing checks<br/>and resolve comments]')
-    checksPendingEdge = dottedEdge('ChecksGate', 'Some pending', 'WaitForCI')
-  } else if (checksGate === 'pending') {
-    checksPendingEdge = solidEdge('ChecksGate', `Some pending: ${checksDetailStr}`, 'WaitForCI')
-    checksNoEdge = dottedEdge('ChecksGate', 'No', 'FixChecks[Fix failing checks<br/>and resolve comments]')
-    checksYesEdge = dottedEdge('ChecksGate', 'Yes', 'CIPassed')
-  } else {
-    checksNoEdge = solidEdge('ChecksGate', `No: ${checksDetailStr}`, 'FixChecks[Fix failing checks<br/>and resolve comments]')
-    checksYesEdge = dottedEdge('ChecksGate', 'Yes', 'CIPassed')
-    checksPendingEdge = dottedEdge('ChecksGate', 'Some pending', 'WaitForCI')
+
+  // Collect edges in order — linkStyle indices match this array
+  const edges: Edge[] = []
+
+  // Edge 0: Start ==> WaitForCI
+  edges.push(plainEdge('Start([Code Complete])', 'WaitForCI[Wait for CI to run]'))
+
+  // Optional: draft warning edge
+  if (notDraftWarning) {
+    edges.push({ line: `    Start -.-x DraftWarn[/"\u26a0\ufe0f ${draft!.detail}"\\/]`, color: 'yellow' })
   }
 
-  // Build the chart
+  // Edge: WaitForCI ==> BranchCheck
+  edges.push(plainEdge('WaitForCI', 'BranchCheck{Is the branch up to date<br/>with the target branch?}'))
+  // Edge: WaitForCI ==> ChecksGate
+  edges.push(plainEdge('WaitForCI', 'ChecksGate{All CI checks passed<br/>and review comments<br/>resolved?}'))
+
+  // Branch edges
+  if (branch.status === 'pass') {
+    edges.push(dottedEdge('BranchCheck', 'No', 'UpdateBranch[Update the branch from<br/>GitHub or the CLI]'))
+    edges.push(plainEdge('UpdateBranch', 'WaitForCI'))
+    edges.push(solidEdge('BranchCheck', 'Yes', 'CIPassed', 'green'))
+  } else {
+    edges.push(solidEdge('BranchCheck', `No: ${branch.detail}`, 'UpdateBranch[Update the branch from<br/>GitHub or the CLI]', 'red'))
+    edges.push(plainEdge('UpdateBranch', 'WaitForCI'))
+    edges.push(dottedEdge('BranchCheck', 'Yes', 'CIPassed'))
+  }
+
+  // Checks edges
+  if (checksGate === 'pass') {
+    edges.push(dottedEdge('ChecksGate', 'Some pending', 'WaitForCI'))
+    edges.push(dottedEdge('ChecksGate', 'No', 'FixChecks[Fix failing checks<br/>and resolve comments]'))
+    edges.push(plainEdge('FixChecks', 'WaitForCI'))
+    edges.push(solidEdge('ChecksGate', 'Yes', 'CIPassed', 'green'))
+  } else if (checksGate === 'pending') {
+    edges.push(solidEdge('ChecksGate', `Some pending: ${checksDetailStr}`, 'WaitForCI', 'grey'))
+    edges.push(dottedEdge('ChecksGate', 'No', 'FixChecks[Fix failing checks<br/>and resolve comments]'))
+    edges.push(plainEdge('FixChecks', 'WaitForCI'))
+    edges.push(dottedEdge('ChecksGate', 'Yes', 'CIPassed'))
+  } else {
+    edges.push(dottedEdge('ChecksGate', 'Some pending', 'WaitForCI'))
+    edges.push(solidEdge('ChecksGate', `No: ${checksDetailStr}`, 'FixChecks[Fix failing checks<br/>and resolve comments]', 'red'))
+    edges.push(plainEdge('FixChecks', 'WaitForCI'))
+    edges.push(dottedEdge('ChecksGate', 'Yes', 'CIPassed'))
+  }
+
+  // Draft / final edges
+  if (draftNeedsAction) {
+    edges.push(plainEdge('CIPassed', 'DraftCheck{PR is still a draft}', 'red'))
+    edges.push(solidEdge('DraftCheck', 'Mark as Ready', 'ReadyForReview', 'red'))
+  } else {
+    edges.push(plainEdge('CIPassed(All gates passed)', 'ReadyForReview([Ready for Review])', allGatesPassed ? 'green' : 'none'))
+  }
+
+  // Reviewer warning
+  if (reviewers?.status === 'warn') {
+    edges.push({ line: `    ReadyForReview -.-x ReviewerWarn[/"\u26a0\ufe0f ${reviewers.detail}"\\/]`, color: 'yellow' })
+  }
+
+  // Build the mermaid source
   const header = `## PR #${prNumber}: ${prTitle}\n\n\`${headRef}\` -> \`${baseRef}\` | State: ${prState}\n`
 
-  // Draft node section
-  let draftSection = ''
+  const edgeLines = edges.map((e) => e.line).join('\n')
+  const edgeStyles = linkStyles(edges)
+
   let draftStyles = ''
-  if (draftNeedsAction) {
-    draftSection = `
-    CIPassed ==> DraftCheck{PR is still a draft}
-    DraftCheck ==>|Mark as Ready| ReadyForReview
-`
-    draftStyles = `\n    ${nodeStyle('DraftCheck', 'fail')}`
-  } else {
-    draftSection = `
-    CIPassed(All gates passed) ==> ReadyForReview([Ready for Review])
-`
-  }
-
-  // Warning if not draft while gates are failing
-  let notDraftSection = ''
   let notDraftStyles = ''
-  if (notDraftWarning) {
-    notDraftSection = `
-    Start -.-x DraftWarn[/"\u26a0\ufe0f ${draft!.detail}"\\/]
-`
-    notDraftStyles = `\n    ${nodeStyle('DraftWarn', 'warn')}`
-  }
-
-  // Reviewer warning section
-  let reviewerSection = ''
   let reviewerStyles = ''
-  if (reviewers?.status === 'warn') {
-    reviewerSection = `
-    ReadyForReview -.-x ReviewerWarn[/"\u26a0\ufe0f ${reviewers.detail}"\\/]
-`
-    reviewerStyles = `\n    ${nodeStyle('ReviewerWarn', 'warn')}`
-  }
+  if (draftNeedsAction) draftStyles = `\n    ${nodeStyle('DraftCheck', 'fail')}`
+  if (notDraftWarning) notDraftStyles = `\n    ${nodeStyle('DraftWarn', 'warn')}`
+  if (reviewers?.status === 'warn') reviewerStyles = `\n    ${nodeStyle('ReviewerWarn', 'warn')}`
 
   const mermaid = `\`\`\`mermaid
 flowchart TD
-    Start([Code Complete]) ==> WaitForCI[Wait for CI to run]
-${notDraftSection}
-    WaitForCI ==> BranchCheck{Is the branch up to date<br/>with the target branch?}
-    WaitForCI ==> ChecksGate{All CI checks passed<br/>and review comments<br/>resolved?}
+${edgeLines}
 
-${branchNoEdge}
-    UpdateBranch ==> WaitForCI
-${branchYesEdge}
-
-${checksPendingEdge}
-${checksNoEdge}
-    FixChecks ==> WaitForCI
-${checksYesEdge}
-${draftSection}${reviewerSection}
     style Start fill:${COLORS.pass},color:#fff
     ${nodeStyle('WaitForCI', 'pending')}
     ${nodeStyle('BranchCheck', branchCheckStatus)}
@@ -160,6 +182,7 @@ ${draftSection}${reviewerSection}
     ${nodeStyle('FixChecks', checksGate === 'fail' ? 'fail' : 'unreached')}
     ${nodeStyle('CIPassed', allPassedStatus)}
     ${nodeStyle('ReadyForReview', readyStatus)}${draftStyles}${notDraftStyles}${reviewerStyles}
+${edgeStyles}
 \`\`\``
 
   return `${header}\n${mermaid}`
