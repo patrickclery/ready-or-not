@@ -20,32 +20,59 @@ describe('generateChart', () => {
     expect(result).toContain('```mermaid')
     expect(result).toContain('PR #123: Add feature X')
     expect(result).toContain('fill:#2ea043') // green nodes
-    expect(result).not.toContain('fill:#cf222e') // no red nodes
   })
 
-  test('branch behind shows red update node', () => {
+  test('branch passing: Yes is solid bold, No is dotted', () => {
+    const result = generateChart({
+      ...baseInput,
+      branch: { status: 'pass', detail: '' },
+      checks: { status: 'pass', detail: '5/5 passed' },
+      threads: { status: 'pass', detail: '' },
+    })
+    // Yes edge: solid (==>) with bold
+    expect(result).toContain('BranchCheck ==>|<b>Yes</b>| CIPassed')
+    // No edge: dotted (-.->) without bold
+    expect(result).toMatch(/BranchCheck -\.->/)
+  })
+
+  test('branch failing: No is solid bold with detail, Yes is dotted', () => {
     const result = generateChart({
       ...baseInput,
       branch: { status: 'fail', detail: '3 commits behind' },
       checks: { status: 'pass', detail: '5/5 passed' },
       threads: { status: 'pass', detail: '' },
     })
-    expect(result).toContain('3 commits behind')
-    expect(result).toContain('fill:#cf222e') // red node for UpdateBranch
+    // No edge: solid with bold detail
+    expect(result).toContain('BranchCheck ==>|<b>No: 3 commits behind</b>|')
+    // Yes edge: dotted
+    expect(result).toContain('BranchCheck -.->|Yes| CIPassed')
+    expect(result).toContain('fill:#cf222e') // red UpdateBranch node
   })
 
-  test('failing checks shows red fix node', () => {
+  test('checks passing: Yes is solid bold, No is dotted', () => {
+    const result = generateChart({
+      ...baseInput,
+      branch: { status: 'pass', detail: '' },
+      checks: { status: 'pass', detail: '5/5 passed' },
+      threads: { status: 'pass', detail: '' },
+    })
+    expect(result).toContain('ChecksGate ==>|<b>Yes</b>| CIPassed')
+    expect(result).toMatch(/ChecksGate -\.->/)
+  })
+
+  test('checks failing: No is solid bold with detail, Yes is dotted', () => {
     const result = generateChart({
       ...baseInput,
       branch: { status: 'pass', detail: '' },
       checks: { status: 'fail', detail: '2/5 failing: CI, lint' },
       threads: { status: 'pass', detail: '' },
     })
-    expect(result).toContain('2/5 failing: CI, lint')
-    expect(result).toContain('fill:#cf222e') // red node for FixChecks
+    expect(result).toContain('ChecksGate ==>|<b>No: 2/5 failing: CI, lint</b>|')
+    expect(result).toContain('ChecksGate -.->|Yes| CIPassed')
+    expect(result).toContain('fill:#cf222e')
   })
 
-  test('unresolved threads shows red fix node', () => {
+  test('unresolved threads shows solid No edge with detail', () => {
     const result = generateChart({
       ...baseInput,
       branch: { status: 'pass', detail: '' },
@@ -53,17 +80,19 @@ describe('generateChart', () => {
       threads: { status: 'fail', detail: '2 unresolved threads' },
     })
     expect(result).toContain('2 unresolved threads')
-    expect(result).toContain('fill:#cf222e')
+    expect(result).toContain('ChecksGate ==>|<b>No:')
   })
 
-  test('pending checks shows grey', () => {
+  test('pending checks: Some pending is solid bold, Yes/No dotted', () => {
     const result = generateChart({
       ...baseInput,
       branch: { status: 'pass', detail: '' },
-      checks: { status: 'pending', detail: '2/5 pending, 3 passed' },
+      checks: { status: 'pending', detail: '2/5 pending' },
       threads: { status: 'pass', detail: '' },
     })
-    expect(result).toContain('Some pending')
+    expect(result).toContain('ChecksGate ==>|<b>Some pending: 2/5 pending</b>| WaitForCI')
+    expect(result).toContain('ChecksGate -.->|Yes| CIPassed')
+    expect(result).toContain('ChecksGate -.->|No|')
   })
 
   test('uses <br/> not \\n for line breaks', () => {
@@ -98,7 +127,7 @@ describe('generateChart', () => {
     })
     expect(result).toContain('ReviewerWarn')
     expect(result).toContain('2 reviewers: alice, bob')
-    expect(result).toContain('fill:#d29922,color:#000') // yellow with black text
+    expect(result).toContain('fill:#d29922,color:#000')
   })
 
   test('no reviewer warning when single reviewer', () => {
@@ -135,7 +164,7 @@ describe('generateChart', () => {
     expect(result).toContain('DraftCheck')
     expect(result).toContain('PR is still a draft')
     expect(result).toContain('Mark as Ready')
-    expect(result).toContain('fill:#cf222e') // red DraftCheck node
+    expect(result).toContain('fill:#cf222e')
   })
 
   test('non-draft PR with gates passed shows green ReadyForReview', () => {
@@ -162,7 +191,7 @@ describe('generateChart', () => {
     })
     expect(result).toContain('DraftWarn')
     expect(result).toContain('draft')
-    expect(result).toContain('fill:#d29922,color:#000') // yellow warning
+    expect(result).toContain('fill:#d29922,color:#000')
   })
 
   test('draft PR with gates failing shows no draft warning', () => {
